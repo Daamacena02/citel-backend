@@ -3,11 +3,7 @@ package br.com.felipe.citel.service;
 import br.com.felipe.citel.model.User;
 import br.com.felipe.citel.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 
 import java.time.LocalDate;
 import java.time.Period;
@@ -70,34 +66,15 @@ public class UserService {
         return hasAnyCpfEquals || hasAnyEmailEquals;
     }
 
-    public Map<String, Object> analyzeCandidates(List<User> candidates) {
-        Map<String, Object> results = new HashMap<>();
-        results.put("candidatosPorEstado", getCandidatosPorEstado(candidates));
-        results.put("imcMedioPorFaixaEtaria", formatDoubleValues(getImcMedioPorFaixaEtaria(candidates)));
-        results.put("percentualObesos", formatDoubleValues(getPercentualObesos(candidates)));
-        results.put("mediaIdadePorTipoSanguineo", formatDoubleValues(getMediaIdadePorTipoSanguineo(candidates)));
-        results.put("possiveisDoadores", getPossiveisDoadores(candidates));
-        return results;
-    }
-
-    private Map<String, Double> formatDoubleValues(Map<String, Double> originalMap) {
-        return originalMap.entrySet().stream()
-                .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        entry -> Math.round(entry.getValue() * 100.0) / 100.0
-                ));
-    }
-
-
-    public Map<String, Long> getCandidatosPorEstado(List<User> candidates) {
-        return candidates.stream()
+    public Map<String, Long> getCandidatosPorEstado(List<User> allUsers) {
+        return allUsers.stream()
                 .collect(Collectors.groupingBy(User::getEstado, Collectors.counting()));
     }
 
-    public Map<String, Double> getImcMedioPorFaixaEtaria(List<User> candidates) {
+    public Map<String, Double> getImcMedioPorFaixaEtaria(List<User> allUsers) {
         Map<String, List<Double>> imcPorFaixaEtaria = new HashMap<>();
 
-        for (User user : candidates) {
+        for (User user : allUsers) {
             int idade = calcularIdade(user.getDataNasc());
             String faixaEtaria = calcularFaixaEtaria(idade);
             double imc = calcularImc(user.getPeso(), user.getAltura());
@@ -107,23 +84,31 @@ public class UserService {
 
         return imcPorFaixaEtaria.entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey,
-                        entry -> entry.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0)));
+                        entry -> {
+                            double imcMedio = entry.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0);
+                            return Math.round(imcMedio * 100.0) / 100.0;
+                        }));
     }
 
-    public Map<String, Double> getPercentualObesos(List<User> candidates) {
-        long totalHomens = candidates.stream().filter(u -> u.getSexo().equalsIgnoreCase("masculino")).count();
-        long totalMulheres = candidates.stream().filter(u -> u.getSexo().equalsIgnoreCase("feminino")).count();
 
-        long obesosHomens = candidates.stream()
+    public Map<String, Double> getPercentualObesos() {
+        List<User> allUsers = userRepository.findAll();
+        long totalHomens = allUsers.stream().filter(u -> u.getSexo().equalsIgnoreCase("masculino")).count();
+        long totalMulheres = allUsers.stream().filter(u -> u.getSexo().equalsIgnoreCase("feminino")).count();
+
+        long obesosHomens = allUsers.stream()
                 .filter(u -> u.getSexo().equalsIgnoreCase("masculino"))
                 .filter(u -> calcularImc(u.getPeso(), u.getAltura()) > 30).count();
 
-        long obesosMulheres = candidates.stream()
+        long obesosMulheres = allUsers.stream()
                 .filter(u -> u.getSexo().equalsIgnoreCase("feminino"))
                 .filter(u -> calcularImc(u.getPeso(), u.getAltura()) > 30).count();
 
         double percentualHomens = (totalHomens == 0) ? 0 : (double) obesosHomens / totalHomens * 100;
         double percentualMulheres = (totalMulheres == 0) ? 0 : (double) obesosMulheres / totalMulheres * 100;
+
+        percentualHomens = Math.round(percentualHomens * 100.0) / 100.0;
+        percentualMulheres = Math.round(percentualMulheres * 100.0) / 100.0;
 
         Map<String, Double> percentualObesos = new HashMap<>();
         percentualObesos.put("masculino", percentualHomens);
@@ -132,10 +117,12 @@ public class UserService {
         return percentualObesos;
     }
 
-    public Map<String, Double> getMediaIdadePorTipoSanguineo(List<User> candidates) {
+
+    public Map<String, Double> getMediaIdadePorTipoSanguineo() {
+        List<User> allUsers = userRepository.findAll();
         Map<String, List<Integer>> idadesPorTipoSanguineo = new HashMap<>();
 
-        for (User user : candidates) {
+        for (User user : allUsers) {
             String tipoSanguineo = user.getTipoSanguineo();
             int idade = calcularIdade(user.getDataNasc());
 
@@ -144,13 +131,18 @@ public class UserService {
 
         return idadesPorTipoSanguineo.entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey,
-                        entry -> entry.getValue().stream().mapToInt(Integer::intValue).average().orElse(0)));
+                        entry -> {
+                            double mediaIdade = entry.getValue().stream().mapToInt(Integer::intValue).average().orElse(0);
+                            return Math.round(mediaIdade * 100.0) / 100.0;
+                        }));
     }
 
-    public Map<String, Long> getPossiveisDoadores(List<User> candidates) {
+
+    public Map<String, Long> getPossiveisDoadores() {
+        List<User> allUsers = userRepository.findAll(); // Buscar todos os usuários do repositório
         Map<String, Long> doadoresPorTipo = new HashMap<>();
 
-        for (User user : candidates) {
+        for (User user : allUsers) {
             if (podeDoar(user)) {
                 for (String tipoReceptor : getTiposSanguineosReceptor(user.getTipoSanguineo())) {
                     doadoresPorTipo.put(tipoReceptor, doadoresPorTipo.getOrDefault(tipoReceptor, 0L) + 1);
@@ -160,6 +152,7 @@ public class UserService {
 
         return doadoresPorTipo;
     }
+
 
     private int calcularIdade(String dataNasc) {
         try {
